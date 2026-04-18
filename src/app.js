@@ -159,7 +159,7 @@ function renderDashboard(model, format) {
   renderTables(model);
 }
 
-// ---------- Map ----------
+// ---------- Map (Leaflet) ----------
 
 let mapInstance = null;
 let markerLayer = null;
@@ -168,9 +168,13 @@ function renderMap(model) {
   if (!mapInstance) {
     mapInstance = L.map('map', {
       center: [50, 15],
-      zoom: 4,
+      zoom: 5,
       minZoom: 3,
       maxZoom: 10,
+      zoomControl: true,
+      worldCopyJump: false,
+      maxBounds: [[30, -30], [72, 50]],
+      maxBoundsViscosity: 1.0,
     });
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -185,6 +189,7 @@ function renderMap(model) {
   const hqKey = (model.summary.hqCity || '').toLowerCase().replace(/\s+/g, '_');
   const bounds = [];
   const missing = [];
+  let hqCoords = null;
 
   for (const g of model.garages) {
     if (g.status === 0) continue;
@@ -192,6 +197,8 @@ function renderMap(model) {
     if (!coords) { missing.push(g.cityRaw); continue; }
 
     const isHq = g.cityRaw.toLowerCase() === hqKey;
+    if (isHq) hqCoords = coords;
+
     const icon = L.divIcon({
       className: 'garage-marker' + (isHq ? ' hq' : ''),
       html: String(g.trucks),
@@ -211,13 +218,24 @@ function renderMap(model) {
       ${topDriver ? `<div class="popup-row"><span>Top driver</span><span>${topDriver.id} (${fmt(topDriver.xp)} XP)</span></div>` : ''}
     `;
 
-    const marker = L.marker([coords.lat, coords.lng], { icon })
+    L.marker([coords.lat, coords.lng], { icon })
       .bindPopup(popup)
       .addTo(markerLayer);
     bounds.push([coords.lat, coords.lng]);
   }
 
-  if (bounds.length) mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 6 });
+  // Prefer centering on HQ — shows the surrounding area with good zoom.
+  if (hqCoords) {
+    mapInstance.setView([hqCoords.lat, hqCoords.lng], 5);
+  } else if (bounds.length) {
+    mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 6 });
+  }
+
+  // When the dashboard section just became visible, Leaflet may have measured
+  // the container before layout finished. Force a resize recalc on the next
+  // frame so all tiles render correctly on the first view.
+  setTimeout(() => mapInstance.invalidateSize(), 0);
+  setTimeout(() => mapInstance.invalidateSize(), 150);
 
   if (missing.length) {
     console.warn('Cities without coordinates (add to cities.js):', [...new Set(missing)]);
@@ -292,17 +310,17 @@ function renderTrucksTable(trucks) {
   wireSearch($('trucksSearch'), trucks, render, ['brand', 'plate', 'country', 'assignment', 'driverId']);
 }
 
-// ---- Drivers ----
+// ---- Drivers (employed only — candidates are noise) ----
 function renderDriversTable(drivers) {
+  const employed = drivers.filter((d) => d.employed);
   const tbody = $('driversTbody');
   const countEl = $('driversCount');
   const skillBar = (n) => `<span class="skill-bar"><span class="fill" style="width:${(n / 6) * 100}%"></span></span>${n}`;
   const render = (rows) => {
-    countEl.textContent = `${rows.length} / ${drivers.length}`;
+    countEl.textContent = `${rows.length} / ${employed.length}`;
     tbody.innerHTML = rows.map((d) => `
       <tr>
         <td>${escapeHtml(d.id)}</td>
-        <td><span class="tag ${d.employed ? 'tag-employed' : 'tag-candidate'}">${d.employed ? 'Employed' : 'Candidate'}</span></td>
         <td>${escapeHtml(d.hometown)}</td>
         <td>${escapeHtml(d.garageCity)}</td>
         <td>${escapeHtml(d.state)}</td>
@@ -317,9 +335,9 @@ function renderDriversTable(drivers) {
       </tr>
     `).join('');
   };
-  render(drivers);
-  makeSortable($('driversThead'), tbody, drivers, render);
-  wireSearch($('driversSearch'), drivers, render, ['id', 'hometown', 'garageCity', 'truck']);
+  render(employed);
+  makeSortable($('driversThead'), tbody, employed, render);
+  wireSearch($('driversSearch'), employed, render, ['id', 'hometown', 'garageCity', 'truck']);
 }
 
 // ---- Trailers ----
@@ -375,7 +393,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(target).classList.add('active');
-    // Leaflet needs size invalidation if map tab is revealed
+    // Leaflet needs a size recalculation when the map tab becomes visible.
     if (mapInstance && target === 'tabMap') setTimeout(() => mapInstance.invalidateSize(), 10);
   });
 });

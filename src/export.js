@@ -104,15 +104,14 @@ export async function exportToExcel(model, filename = 'ets2-fleet.xlsx') {
   tSheet['!autofilter'] = { ref: `A1:${colLetter(tHeaders.length)}${tRows.length + 1}` };
   XLSX.utils.book_append_sheet(wb, tSheet, 'Trucks');
 
-  // --- Drivers ---
+  // --- Drivers (employed only — candidates are the recruitment pool, not your company) ---
   const dHeaders = [
-    'Driver ID', 'Employed', 'Hometown', 'Current City', 'Garage (City)', 'State',
+    'Driver ID', 'Hometown', 'Current City', 'Garage (City)', 'State',
     'XP', 'Long Distance', 'Heavy', 'Fragile', 'Urgent', 'Mechanical',
     'ADR Classes', 'Truck', 'Truck Plate', 'Trailer',
   ];
-  const dRows = model.drivers.map((d) => ({
+  const dRows = model.drivers.filter((d) => d.employed).map((d) => ({
     'Driver ID': d.id,
-    Employed: d.employed ? 'Yes' : 'No (candidate)',
     Hometown: d.hometown,
     'Current City': d.currentCity,
     'Garage (City)': d.garageCity,
