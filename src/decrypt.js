@@ -1,34 +1,20 @@
 /**
- * SII Decryption wrapper.
+ * SII File Loader.
  *
- * ETS2 save files come in 3 flavors:
- *   1. Plain text (starts with "SiiNunit")  — no processing needed
- *   2. Encrypted  (magic "ScsC")             — AES-encrypted, needs decrypt
- *   3. Binary     (magic "BSII")             — structured binary, needs decode
+ * ETS2 save files come in 3 formats:
+ *   1. Plain text (starts with "SiiNunit")  — we read directly ✓
+ *   2. Encrypted  (magic "ScsC")             — we ask the user to pre-decrypt
+ *   3. Binary     (magic "BSII")             — we ask the user to pre-decrypt
  *
- * We detect which we have and run the right path.
+ * For (2) and (3), we point users to https://sii-decode.github.io/ which is a
+ * battle-tested browser-based decryptor (yuriko_3's implementation).
  *
- * The heavy lifting uses a port of TheLazyTomcat's SII_Decrypt (via the
- * `@trucky/sii-decrypt-ts` npm package, loaded through esm.sh so we don't need
- * a bundler). Credit: TheLazyTomcat, jammerxd, trucky (see README).
+ * Why this split? Browser-side decryption of the proprietary SCS formats needs
+ * a significant chunk of code that's not our core value — letting the user do
+ * one extra step using an already-reliable tool keeps our footprint small and
+ * our site robust. If the community ever asks loudly enough for one-click, we
+ * can integrate a proper browser-native decryptor later.
  */
-
-const DECRYPT_LIB_URL = 'https://esm.sh/@trucky/sii-decrypt-ts@1.0.0';
-
-let decryptLibPromise = null;
-
-function loadDecryptLib() {
-  if (!decryptLibPromise) {
-    decryptLibPromise = import(DECRYPT_LIB_URL).catch((err) => {
-      decryptLibPromise = null;
-      throw new Error(
-        'Could not load the SII decryption library. Please check your ' +
-          'internet connection and try again. (' + err.message + ')'
-      );
-    });
-  }
-  return decryptLibPromise;
-}
 
 /**
  * Sniff the first bytes of the file to figure out what we're dealing with.
@@ -51,8 +37,24 @@ function detectFormat(uint8) {
 }
 
 /**
+ * Error class so the UI can special-case encrypted files with a friendlier
+ * message and an action (link to sii-decode.github.io).
+ */
+export class NeedsDecryptionError extends Error {
+  constructor(format) {
+    super(
+      format === 'encrypted'
+        ? 'This save file is encrypted and needs to be decoded first.'
+        : 'This save file is in binary format and needs to be decoded first.'
+    );
+    this.name = 'NeedsDecryptionError';
+    this.format = format;
+  }
+}
+
+/**
  * Takes a File (from an <input type="file">) and returns { text, format }.
- * Throws on error.
+ * Throws NeedsDecryptionError for encrypted/binary saves, generic Error otherwise.
  */
 export async function loadSaveFile(file) {
   const arrayBuf = await file.arrayBuffer();
@@ -65,31 +67,14 @@ export async function loadSaveFile(file) {
   }
 
   if (format === 'encrypted' || format === 'binary') {
-    const lib = await loadDecryptLib();
-    const SIIDecryptor = lib.SIIDecryptor || lib.default?.SIIDecryptor;
-    if (!SIIDecryptor) {
-      throw new Error('Decryption library loaded but SIIDecryptor export not found.');
-    }
-    // Convert Uint8Array to a buffer-like object the lib expects.
-    // The lib accepts a filename in node, but we pass buffer data directly.
-    const result = await SIIDecryptor.decryptBuffer
-      ? SIIDecryptor.decryptBuffer(uint8)
-      : SIIDecryptor.decrypt(uint8);
-
-    if (!result || !result.success) {
-      throw new Error(
-        'Decryption failed: ' + (result?.error || 'unknown error') +
-          '. This file may be from an unsupported game version.'
-      );
-    }
-    const text = result.string_content || (result.data ? new TextDecoder().decode(result.data) : '');
-    if (!text) throw new Error('Decryption produced empty output.');
-    return { text, format };
+    throw new NeedsDecryptionError(format);
   }
 
+  const magic = Array.from(uint8.slice(0, 4))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join(' ');
   throw new Error(
-    'Unrecognized file format. Expected an ETS2 game.sii save ' +
-      '(text, encrypted, or binary). Got: ' +
-      Array.from(uint8.slice(0, 4)).map((b) => b.toString(16).padStart(2, '0')).join(' ')
+    `Unrecognized file format (magic bytes: ${magic}). ` +
+      'Expected an ETS2 game.sii save — either plain text (starting with "SiiNunit"), encrypted ("ScsC..."), or binary ("BSII...").'
   );
 }

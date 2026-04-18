@@ -4,7 +4,7 @@
  * Wires the file upload, parsing, and all UI components (stats, map, tables).
  */
 import { parseSii } from './parser.js';
-import { loadSaveFile } from './decrypt.js';
+import { loadSaveFile, NeedsDecryptionError } from './decrypt.js';
 import { cityCoords } from './cities.js';
 import { exportToExcel } from './export.js';
 
@@ -30,8 +30,9 @@ function showSection(name) {
   dashboardEl.classList.toggle('active', name === 'dashboard');
 }
 
-function showError(msg) {
-  errorBoxEl.textContent = msg;
+function showError(msg, asHtml = false) {
+  if (asHtml) errorBoxEl.innerHTML = msg;
+  else errorBoxEl.textContent = msg;
   errorBoxEl.style.display = '';
 }
 function clearError() {
@@ -66,7 +67,24 @@ async function handleFile(file) {
   } catch (err) {
     console.error(err);
     showSection('landing');
-    showError(err.message || String(err));
+    if (err instanceof NeedsDecryptionError) {
+      showError(
+        `<strong>This save is ${err.format === 'encrypted' ? 'encrypted' : 'in binary format'}.</strong> ` +
+          'To view it here, first decode it:' +
+          '<ol style="margin: 10px 0 4px 20px; line-height: 1.7;">' +
+          '<li>Go to <a href="https://sii-decode.github.io/" target="_blank" rel="noopener">sii-decode.github.io</a> (opens in a new tab — your file stays in your browser)</li>' +
+          '<li>Drop your <code>game.sii</code> there and download the decoded version</li>' +
+          '<li>Come back here and upload the decoded file</li>' +
+          '</ol>' +
+          '<p style="margin: 10px 0 0 0; font-size: 12px; color: var(--text-dim)">' +
+          'Alternative: set <code>uset g_save_format "2"</code> in your <code>config.cfg</code>, reload & save in-game, ' +
+          'and future saves will be plain text — no decoding needed.' +
+          '</p>',
+        true
+      );
+    } else {
+      showError(err.message || String(err));
+    }
   }
 }
 
