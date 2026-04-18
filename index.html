@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ETS2 Fleet Viewer — Upload your save, see your company</title>
+<meta name="description" content="Upload your Euro Truck Simulator 2 save file (game.sii) and get an instant dashboard of your garages, trucks, drivers, and trailers — with an interactive map of your fleet across Europe." />
+<meta property="og:title" content="ETS2 Fleet Viewer" />
+<meta property="og:description" content="Browser-based dashboard for your Euro Truck Simulator 2 company saves." />
+<meta property="og:type" content="website" />
+
+<!-- Leaflet CSS (from CDN) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div>
+    <h1>ETS2 <span class="accent">Fleet Viewer</span></h1>
+    <div class="tagline">See your Euro Truck Simulator 2 company at a glance</div>
+  </div>
+  <div class="header-actions">
+    <button id="loadAnotherBtn" class="btn" style="display:none">⇆ Load another save</button>
+    <button id="exportExcelBtn" class="btn" style="display:none">📥 Download Excel</button>
+    <a class="github-link" href="https://github.com/AggelosPnS/ets2-fleet-viewer" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main>
+
+<div id="errorBox" class="error-box" style="display:none"></div>
+
+<!-- ========== Landing ========== -->
+<section id="landing" class="landing">
+  <h2>Unpack your truck empire.</h2>
+  <p class="lead">Upload your ETS2 <code>game.sii</code> and get an interactive view of every garage, truck, driver, and trailer in your company.</p>
+
+  <label id="uploadZone" class="upload-zone">
+    <input type="file" id="fileInput" accept=".sii,.txt" />
+    <div class="icon">📦</div>
+    <div class="primary-text">Drop <code>game.sii</code> here or click to browse</div>
+    <div class="secondary-text">Encrypted or plain text — both work. Max ~50MB.</div>
+  </label>
+
+  <div class="instructions">
+    <h3>🔎 Where is my <code>game.sii</code>?</h3>
+    <ol>
+      <li>Open <code>C:\Program Files (x86)\Steam\userdata\&lt;YourSteamID&gt;\227300\remote\profiles\</code></li>
+      <li>Inside, there's one folder per profile (hex-encoded name). Open it.</li>
+      <li>Go into <code>save\</code> and pick the slot you want (e.g. <code>autosave</code> or a numbered one).</li>
+      <li>Inside is <code>game.sii</code>. Drag it onto the box above. Done. 🚛</li>
+    </ol>
+    <div class="privacy-note">
+      🔒 <strong>Privacy:</strong> Your save never leaves your browser. All parsing, decryption, and analysis happens locally on your device.
+      This site doesn't upload, log, or store anything. Check the <a href="https://github.com/AggelosPnS/ets2-fleet-viewer" target="_blank" rel="noopener">source code</a>.
+    </div>
+  </div>
+</section>
+
+<!-- ========== Loading ========== -->
+<section id="loading" class="loading" style="display:none">
+  <div class="spinner"></div>
+  <div id="loadingStatus">Loading save...</div>
+</section>
+
+<!-- ========== Dashboard ========== -->
+<section id="dashboard" class="dashboard">
+
+  <div class="hq-banner">
+    <div>
+      <h2>🏢 HQ: <span id="hqCity">—</span></h2>
+      <div class="sub" id="hqSub">—</div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card accent">
+      <div class="label">Owned Garages</div>
+      <div class="value" id="statGarages">—</div>
+      <div class="sub" id="statGaragesSub">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Trucks</div>
+      <div class="value" id="statTrucks">—</div>
+      <div class="sub" id="statTrucksSub">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Drivers</div>
+      <div class="value" id="statDrivers">—</div>
+      <div class="sub" id="statDriversSub">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Trailers</div>
+      <div class="value" id="statTrailers">—</div>
+      <div class="sub" id="statTrailersSub">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total km driven</div>
+      <div class="value" id="statKm">—</div>
+      <div class="sub" id="statKmSub">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Driver XP</div>
+      <div class="value" id="statXp">—</div>
+      <div class="sub" id="statXpSub">—</div>
+    </div>
+  </div>
+
+  <div class="tabs-section">
+    <div class="tab-buttons">
+      <button class="tab-btn active" data-tab="tabMap">🗺️ Map</button>
+      <button class="tab-btn" data-tab="tabGarages">🏢 Garages</button>
+      <button class="tab-btn" data-tab="tabTrucks">🚛 Trucks</button>
+      <button class="tab-btn" data-tab="tabDrivers">👨‍✈️ Drivers</button>
+      <button class="tab-btn" data-tab="tabTrailers">🚚 Trailers</button>
+    </div>
+
+    <div class="tab-content">
+
+      <div id="tabMap" class="tab-pane active">
+        <h3 class="section-title">Your garages across Europe</h3>
+        <div id="map"></div>
+        <p style="color: var(--text-dim); font-size: 12px; margin-top: 8px">
+          Numbers on markers = trucks stationed there. 🟡 = HQ. Click any marker for details.
+        </p>
+      </div>
+
+      <div id="tabGarages" class="tab-pane">
+        <div class="table-toolbar">
+          <input type="search" id="garagesSearch" placeholder="Search garages..." />
+          <span class="count" id="garagesCount"></span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead id="garagesThead">
+              <tr>
+                <th data-key="city">City</th>
+                <th data-key="statusLabel">Status</th>
+                <th data-key="trucks">Trucks</th>
+                <th data-key="drivers">Drivers</th>
+                <th data-key="trailers">Trailers</th>
+                <th data-key="productivity">Productivity</th>
+              </tr>
+            </thead>
+            <tbody id="garagesTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tabTrucks" class="tab-pane">
+        <div class="table-toolbar">
+          <input type="search" id="trucksSearch" placeholder="Search trucks by brand, plate, driver..." />
+          <span class="count" id="trucksCount"></span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead id="trucksThead">
+              <tr>
+                <th data-key="brand">Brand / Model</th>
+                <th data-key="plate">Plate</th>
+                <th data-key="country">Country</th>
+                <th data-key="odometer">Odometer (km)</th>
+                <th data-key="engineWear">Engine</th>
+                <th data-key="chassisWear">Chassis</th>
+                <th data-key="assignment">Assignment</th>
+                <th data-key="driverId">Driver</th>
+                <th data-key="driverXP">Driver XP</th>
+              </tr>
+            </thead>
+            <tbody id="trucksTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tabDrivers" class="tab-pane">
+        <div class="table-toolbar">
+          <input type="search" id="driversSearch" placeholder="Search drivers by ID, hometown, truck..." />
+          <span class="count" id="driversCount"></span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead id="driversThead">
+              <tr>
+                <th data-key="id">ID</th>
+                <th data-key="employed">Status</th>
+                <th data-key="hometown">Hometown</th>
+                <th data-key="garageCity">Garage</th>
+                <th data-key="state">Activity</th>
+                <th data-key="xp">XP</th>
+                <th data-key="longDist">Long Dist.</th>
+                <th data-key="heavy">Heavy</th>
+                <th data-key="fragile">Fragile</th>
+                <th data-key="urgent">Urgent</th>
+                <th data-key="mechanical">Mech.</th>
+                <th data-key="adr">ADR</th>
+                <th data-key="truck">Truck</th>
+              </tr>
+            </thead>
+            <tbody id="driversTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tabTrailers" class="tab-pane">
+        <div class="table-toolbar">
+          <input type="search" id="trailersSearch" placeholder="Search trailers..." />
+          <span class="count" id="trailersCount"></span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead id="trailersThead">
+              <tr>
+                <th data-key="type">Type</th>
+                <th data-key="plate">Plate</th>
+                <th data-key="country">Country</th>
+                <th data-key="odometer">Odometer (km)</th>
+                <th data-key="garageCity">Garage</th>
+                <th data-key="driverId">Driver</th>
+              </tr>
+            </thead>
+            <tbody id="trailersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <p>
+    Made for the <a href="https://www.eurotrucksimulator2.com/" target="_blank" rel="noopener">Euro Truck Simulator 2</a> community.
+    Not affiliated with SCS Software.<br />
+    SII decryption based on work by <a href="https://github.com/TheLazyTomcat/SII_Decrypt" target="_blank" rel="noopener">TheLazyTomcat</a>,
+    <a href="https://gitlab.com/jammerxd/sii-decryptsharp" target="_blank" rel="noopener">jammerxd</a>, and
+    <a href="https://www.npmjs.com/package/@trucky/sii-decrypt-ts" target="_blank" rel="noopener">trucky</a>.
+    Open source on <a href="https://github.com/AggelosPnS/ets2-fleet-viewer" target="_blank" rel="noopener">GitHub</a>.
+  </p>
+</footer>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<!-- Show action buttons once dashboard is visible -->
+<script>
+  const obs = new MutationObserver(() => {
+    const active = document.getElementById('dashboard').classList.contains('active');
+    document.getElementById('loadAnotherBtn').style.display = active ? '' : 'none';
+    document.getElementById('exportExcelBtn').style.display = active ? '' : 'none';
+  });
+  obs.observe(document.getElementById('dashboard'), { attributes: true, attributeFilter: ['class'] });
+</script>
+
+<!-- App -->
+<script type="module" src="./src/app.js"></script>
+
+</body>
+</html>
